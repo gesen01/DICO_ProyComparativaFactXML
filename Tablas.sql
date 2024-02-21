@@ -8,6 +8,7 @@ CREATE TABLE FacturaXML(
     NombreCte		    VARCHAR(250)	NULL,
     VentaMovArts	    INT		 NULL,
     VentaMovImporte	    FLOAT		 NULL,
+	Estatus				VARCHAR(10)	NULL,
     FilasArts		    INT		 NULL,
     FactImporteXML	    FLOAT		 NULL,
     Validacion		    BIT		 NULL
@@ -36,6 +37,7 @@ CREATE TABLE VentaXML(
    MovID	  	 VARCHAR(25),
    FechaEmision DATETIME,
    Cliente	 VARCHAR(10),
+   Estatus	VARCHAR(10),
    Nombre	  	 VARCHAR(255),
    FilasArts	 INT,
    Importe	 FLOAT

@@ -8,9 +8,11 @@ GO
 IF EXISTS(SELECT * FROM sysobjects WHERE TYPE='p' AND NAME='xpDICOAnalizaCFDXML')
 DROP PROCEDURE xpDICOAnalizaCFDXML
 GO
---EXEC xpDICOAnalizaCFDXML 99
+--EXEC xpDICOAnalizaCFDXML 99,'20200925','20200925'
 CREATE PROCEDURE xpDICOAnalizaCFDXML
-@Estacion   INT
+@Estacion   INT,
+@FechaD     DATETIME,
+@FechaA     DATETIME
 AS
 BEGIN
 	DECLARE @DocXML VARCHAR(MAX)
@@ -43,12 +45,12 @@ BEGIN
 
 INSERT INTO @CFD
 SELECT CAST(Documento AS VARCHAR(MAX)),c.ModuloID
-FROM CFD AS c
-JOIN Venta AS v ON c.ModuloID=v.ID AND c.Modulo NOT IN ('CXC','DIN')
-JOIN MovTipo AS mt ON mt.Mov = v.Mov AND mt.CFDFlex=1 AND mt.VentaDCartaPorte=0 
+FROM CFD AS c WITH(NOLOCK)
+JOIN Venta AS v WITH(NOLOCK) ON c.ModuloID=v.ID AND c.Modulo NOT IN ('CXC','DIN')
+JOIN MovTipo AS mt WITH(NOLOCK) ON mt.Mov = v.Mov AND mt.CFDFlex=1 AND mt.VentaDCartaPorte=0 
 WHERE c.Documento IS NOT NULL
 AND c.Timbrado=1
-AND V.Estatus='CONCLUIDO'
+AND CONVERT(DATE,C.Fecha) BETWEEN @FechaD AND @FechaA
 
 
 SELECT @TotalXML=COUNT(ModuloID)
@@ -116,15 +118,17 @@ SELECT @Estacion
        ,vt.MovID
        ,vt.FechaEmision
        ,vt.Cliente
+	   ,vt.Estatus
        ,c2.Nombre
        ,COUNT(vt.Renglon) 'FilasArts'
        ,SUM(vt.Importe)-SUM(ISNULL(vt.DescuentosTotalesSinDL,0)) AS 'Importe'
-FROM VentaTCalc AS vt
-JOIN Cte AS c2 ON c2.Cliente = vt.Cliente
-JOIN CFD AS c ON vt.ID=c.ModuloID AND c.Modulo='VTAS' AND c.Documento IS NOT NULL AND c.Timbrado=1
-JOIN MovTipo AS mt ON mt.Mov = vt.Mov AND mt.CFDFlex=1 AND mt.VentaDCartaPorte=0
-WHERE vt.Estatus='CONCLUIDO'
-GROUP BY vt.ID,vt.Mov,vt.MovID,vt.FechaEmision,vt.cliente,c2.nombre
+FROM VentaTCalc AS vt WITH(NOLOCK)
+JOIN Cte AS c2 WITH(NOLOCK) ON c2.Cliente = vt.Cliente
+JOIN CFD AS c WITH(NOLOCK) ON vt.ID=c.ModuloID AND c.Modulo='VTAS' AND c.Documento IS NOT NULL AND c.Timbrado=1
+JOIN MovTipo AS mt WITH(NOLOCK) ON mt.Mov = vt.Mov AND mt.CFDFlex=1 AND mt.VentaDCartaPorte=0
+WHERE  CONVERT(DATE,c.Fecha) BETWEEN @FechaD AND @FechaA
+GROUP BY vt.ID,vt.Mov,vt.MovID,vt.FechaEmision,vt.cliente,c2.nombre,vt.Estatus
+
 
 INSERT INTO VentaDXML
 SELECT @Estacion
@@ -135,11 +139,10 @@ SELECT @Estacion
       ,vt.Precio
       ,ISNULL(vt.DescuentosTotalesSinDL,0) AS 'Descuento'
       ,vt.Importe-ISNULL(vt.DescuentosTotalesSinDL,0) AS 'Importe' 
-FROM VentaTCalc AS vt
-JOIN CFD AS c ON vt.ID=c.ModuloID AND c.Modulo='VTAS' AND c.Documento IS NOT NULL AND c.Timbrado=1
-JOIN MovTipo AS mt ON mt.Mov = vt.Mov AND mt.CFDFlex=1 AND mt.VentaDCartaPorte=0
-WHERE vt.Estatus='CONCLUIDO'
-
+FROM VentaTCalc AS vt WITH(NOLOCK)
+JOIN CFD AS c WITH(NOLOCK) ON vt.ID=c.ModuloID AND c.Modulo='VTAS' AND c.Documento IS NOT NULL AND c.Timbrado=1
+JOIN MovTipo AS mt WITH(NOLOCK) ON mt.Mov = vt.Mov AND mt.CFDFlex=1 AND mt.VentaDCartaPorte=0
+WHERE CONVERT(DATE,c.Fecha) BETWEEN @FechaD AND @FechaA
 
 INSERT INTO FacturaXML
 SELECT fx.ID
@@ -151,13 +154,14 @@ SELECT fx.ID
        ,v.Nombre
        ,v.FilasArts
        ,v.Importe
+	   ,v.Estatus
        ,COUNT(Clave)
        ,SUM(ISNULL(fx.Importe,0))-SUM(ISNULL(fx.Descuento,0))
        ,CASE WHEN COUNT(clave)=v.FilasArts THEN 1 ELSE 0 END AS 'Validacion'
 FROM @FacturaXMLD AS fx
 JOIN VentaXML v ON fx.ID=v.ID
 WHERE v.Estacion=@Estacion
-GROUP BY fx.ID,v.Mov,v.MovID,v.FechaEmision,v.Cliente,v.Nombre,v.FilasArts,v.Importe;
+GROUP BY fx.ID,v.Mov,v.MovID,v.FechaEmision,v.Cliente,v.Nombre,v.FilasArts,v.Importe,v.Estatus
 
 INSERT INTO FacturaXMLD
 SELECT DISTINCT ISNULL(f.ID,d.ID)
