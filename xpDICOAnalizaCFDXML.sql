@@ -200,7 +200,6 @@ SELECT fx.ID
        ,SUM(ISNULL(fx.Importe,0))-SUM(ISNULL(fx.Descuento,0))
 	   ,fx.ImporteTotal
 	   ,fx.ImpuestosTotal
-       ,CASE WHEN COUNT(clave)=v.FilasArts THEN 1 ELSE 0 END AS 'Validacion'
 FROM @FacturaXMLD AS fx
 JOIN VentaXML v ON fx.ID=v.ID
 WHERE v.Estacion=@Estacion

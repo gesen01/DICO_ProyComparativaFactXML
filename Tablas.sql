@@ -14,8 +14,7 @@ CREATE TABLE FacturaXML(
     FilasArts		    INT		 NULL,
 	FactImporteXML	    FLOAT		 NULL,
 	ImporteXMLTotal		FLOAT,
-    ImpuestosXMLTotal	FLOAT,
-    Validacion		    BIT		 NULL
+    ImpuestosXMLTotal	FLOAT
 )
 GO
 CREATE TABLE FacturaXMLD(
