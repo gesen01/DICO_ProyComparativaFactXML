@@ -8,7 +8,7 @@ GO
 IF EXISTS(SELECT * FROM sysobjects WHERE TYPE='p' AND NAME='xpDICOAnalizaCFDXML')
 DROP PROCEDURE xpDICOAnalizaCFDXML
 GO
---EXEC xpDICOAnalizaCFDXML 99,'20200925','20200925'
+--EXEC xpDICOAnalizaCFDXML 99,'20240124','20240124'
 CREATE PROCEDURE xpDICOAnalizaCFDXML
 @Estacion   INT,
 @FechaD     DATETIME,
@@ -20,6 +20,8 @@ BEGIN
         ,@Contador  INT =1
         ,@TotalXML  INT
         ,@ID        INT
+		,@ImporteTotal	FLOAT
+		,@ImpuestosTotal	FLOAT
         
     DECLARE @CFD   TABLE (
         ID      INT IDENTITY(1,1) NOT NULL,
@@ -35,7 +37,9 @@ BEGIN
         Cantidad            FLOAT,
         Costo               FLOAT,
         Importe             FLOAT,
-        Descuento           FLOAT
+        Descuento           FLOAT,
+		ImporteTotal		FLOAT,
+		ImpuestosTotal		FLOAT
     )
     
     DELETE FROM FacturaXML WHERE Estacion=@Estacion
@@ -50,11 +54,12 @@ JOIN Venta AS v WITH(NOLOCK) ON c.ModuloID=v.ID AND c.Modulo NOT IN ('CXC','DIN'
 JOIN MovTipo AS mt WITH(NOLOCK) ON mt.Mov = v.Mov AND mt.CFDFlex=1 AND mt.VentaDCartaPorte=0 
 WHERE c.Documento IS NOT NULL
 AND c.Timbrado=1
-AND CONVERT(DATE,C.Fecha) BETWEEN @FechaD AND @FechaA
+AND v.FechaEmision BETWEEN @FechaD AND @FechaA
 
 
 SELECT @TotalXML=COUNT(ModuloID)
 FROM @CFD
+
 
 WHILE @Contador <= @TotalXML
 BEGIN
@@ -75,7 +80,7 @@ DECLARE @hdoc int
 EXEC sp_xml_preparedocument @hdoc OUTPUT,@XML                   
                 	         	
 --Se obtiene el UUID del documento XML
-INSERT INTO @FacturaXMLD
+INSERT INTO @FacturaXMLD(ID,Clave,Descripcion,Cantidad,Costo,Importe,Descuento)
 SELECT @ID,NoIdentificacion,Descripcion,Cantidad,ValorUnitario,Importe,ISNULL(Descuento,0)
 FROM OPENXML (@hdoc, '/Comprobante/Conceptos/Concepto',1)
 WITH (
@@ -87,12 +92,28 @@ WITH (
       Descuento       FLOAT
 )
 
+SELECT @ImporteTotal=Total
+FROM OPENXML (@hdoc, '/Comprobante',1)
+WITH (
+      Total       FLOAT
+)
+
+SELECT @ImpuestosTotal=TotalImpuestosTrasladados
+FROM OPENXML (@hdoc, '/Comprobante/Impuestos',1)
+WITH (
+       TotalImpuestosTrasladados       FLOAT
+)
+
+UPDATE @FacturaXMLD SET ImporteTotal=@ImporteTotal
+						,ImpuestosTotal=@ImpuestosTotal
+		WHERE ID=@ID
+
 --Se valida que si el registro no fue insertado forza el ingreso del registro extrayendo nuevamente los datos del XML
 IF EXISTS(SELECT 1 FROM @FacturaXMLD WHERE ID=@ID AND Clave IS NULL)
 BEGIN
 	DELETE FROM @FacturaXMLD WHERE ID=@ID
 	
-	INSERT INTO @FacturaXMLD
+	INSERT INTO @FacturaXMLD(ID,Clave,Descripcion,Cantidad,Costo,Importe,Descuento)
 	SELECT @ID,noIdentificacion,descripcion,cantidad,valorUnitario,importe,ISNULL(Descuento,0)
 	FROM OPENXML (@hdoc, '/Comprobante/Conceptos/Concepto',1)
 	WITH (
@@ -103,6 +124,22 @@ BEGIN
 		  importe         FLOAT,
 		 descuento       FLOAT
 	)
+
+	SELECT @ImporteTotal=Total
+	FROM OPENXML (@hdoc, '/Comprobante',1)
+	WITH (
+		  Total       FLOAT
+	)
+
+	SELECT @ImpuestosTotal=TotalImpuestosTrasladados
+	FROM OPENXML (@hdoc, '/Comprobante/Impuestos',1)
+	WITH (
+		   TotalImpuestosTrasladados       FLOAT
+	)
+
+	UPDATE @FacturaXMLD SET ImporteTotal=@ImporteTotal
+							,ImpuestosTotal=@ImpuestosTotal
+	WHERE ID=@ID
 END
 -- Liberamos memoria de la lectura del xml
 EXEC sp_xml_removedocument @hdoc
@@ -121,12 +158,14 @@ SELECT @Estacion
 	   ,vt.Estatus
        ,c2.Nombre
        ,COUNT(vt.Renglon) 'FilasArts'
-       ,SUM(vt.Importe)-SUM(ISNULL(vt.DescuentosTotalesSinDL,0)) AS 'Importe'
+       ,SUM(vt.ImporteTotal) AS 'Importe'
+	   ,SUM(vt.Impuesto1Total)
+	   ,SUM(vt.Subtotal)
 FROM VentaTCalc AS vt WITH(NOLOCK)
 JOIN Cte AS c2 WITH(NOLOCK) ON c2.Cliente = vt.Cliente
 JOIN CFD AS c WITH(NOLOCK) ON vt.ID=c.ModuloID AND c.Modulo='VTAS' AND c.Documento IS NOT NULL AND c.Timbrado=1
 JOIN MovTipo AS mt WITH(NOLOCK) ON mt.Mov = vt.Mov AND mt.CFDFlex=1 AND mt.VentaDCartaPorte=0
-WHERE  CONVERT(DATE,c.Fecha) BETWEEN @FechaD AND @FechaA
+WHERE vt.FechaEmision BETWEEN @FechaD AND @FechaA
 GROUP BY vt.ID,vt.Mov,vt.MovID,vt.FechaEmision,vt.cliente,c2.nombre,vt.Estatus
 
 
@@ -138,11 +177,11 @@ SELECT @Estacion
       ,vt.Cantidad
       ,vt.Precio
       ,ISNULL(vt.DescuentosTotalesSinDL,0) AS 'Descuento'
-      ,vt.Importe-ISNULL(vt.DescuentosTotalesSinDL,0) AS 'Importe' 
+      ,vt.SubTotal AS 'Importe' 
 FROM VentaTCalc AS vt WITH(NOLOCK)
 JOIN CFD AS c WITH(NOLOCK) ON vt.ID=c.ModuloID AND c.Modulo='VTAS' AND c.Documento IS NOT NULL AND c.Timbrado=1
 JOIN MovTipo AS mt WITH(NOLOCK) ON mt.Mov = vt.Mov AND mt.CFDFlex=1 AND mt.VentaDCartaPorte=0
-WHERE CONVERT(DATE,c.Fecha) BETWEEN @FechaD AND @FechaA
+WHERE vt.FechaEmision BETWEEN @FechaD AND @FechaA
 
 INSERT INTO FacturaXML
 SELECT fx.ID
@@ -154,14 +193,18 @@ SELECT fx.ID
        ,v.Nombre
        ,v.FilasArts
        ,v.Importe
+	   ,v.Impuestos
+	   ,v.Subtotal
 	   ,v.Estatus
        ,COUNT(Clave)
        ,SUM(ISNULL(fx.Importe,0))-SUM(ISNULL(fx.Descuento,0))
+	   ,fx.ImporteTotal
+	   ,fx.ImpuestosTotal
        ,CASE WHEN COUNT(clave)=v.FilasArts THEN 1 ELSE 0 END AS 'Validacion'
 FROM @FacturaXMLD AS fx
 JOIN VentaXML v ON fx.ID=v.ID
 WHERE v.Estacion=@Estacion
-GROUP BY fx.ID,v.Mov,v.MovID,v.FechaEmision,v.Cliente,v.Nombre,v.FilasArts,v.Importe,v.Estatus
+GROUP BY fx.ID,v.Mov,v.MovID,v.FechaEmision,v.Cliente,v.Nombre,v.FilasArts,v.Importe,v.Impuestos,v.subtotal,v.Estatus,fx.ImporteTotal,fx.ImpuestosTotal
 
 INSERT INTO FacturaXMLD
 SELECT DISTINCT ISNULL(f.ID,d.ID)

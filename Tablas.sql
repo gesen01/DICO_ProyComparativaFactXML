@@ -8,9 +8,13 @@ CREATE TABLE FacturaXML(
     NombreCte		    VARCHAR(250)	NULL,
     VentaMovArts	    INT		 NULL,
     VentaMovImporte	    FLOAT		 NULL,
+	VentaMovImpuestos	FLOAT		NULL,
+	VentaMovSubTotal	FLOAT		NULL,
 	Estatus				VARCHAR(10)	NULL,
     FilasArts		    INT		 NULL,
-    FactImporteXML	    FLOAT		 NULL,
+	FactImporteXML	    FLOAT		 NULL,
+	ImporteXMLTotal		FLOAT,
+    ImpuestosXMLTotal	FLOAT,
     Validacion		    BIT		 NULL
 )
 GO
@@ -40,7 +44,9 @@ CREATE TABLE VentaXML(
    Estatus	VARCHAR(10),
    Nombre	  	 VARCHAR(255),
    FilasArts	 INT,
-   Importe	 FLOAT
+   Importe	 FLOAT,
+   Impuestos	FLOAT,
+   Subtotal		FLOAT
 )
 GO
 CREATE TABLE VentaDXML(
